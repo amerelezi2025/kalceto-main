@@ -1,11 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import { requestCode } from "@/lib/auth.functions";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: z.object({ mode: z.enum(["signup", "login"]).optional() }),
@@ -22,6 +20,11 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+function siteRedirect(path: "/dashboard" | "/set-password") {
+  const base = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${window.location.origin}${base}${path}`;
+}
+
 function AuthPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
@@ -33,7 +36,6 @@ function AuthPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [wait, setWait] = useState(0);
-  const send = useServerFn(requestCode);
 
   // Sign-up is always: email -> link -> choose password. Login can use password or a link.
   const usesLink = mode === "signup" || method === "link";
@@ -49,9 +51,26 @@ function AuthPage() {
 
   async function sendLink() {
     setBusy(true); setError("");
-    const r = await send({ data: { email, mode } }).catch(() => ({ ok: false as const, error: "Something went wrong. Try again." }));
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: mode === "signup",
+        emailRedirectTo: siteRedirect(mode === "signup" ? "/set-password" : "/dashboard"),
+      },
+    });
     setBusy(false);
-    if (!r.ok) { setError(r.error); if ("wait" in r && r.wait) setWait(r.wait); return; }
+    if (error) {
+      if (/signups not allowed|not found/i.test(error.message)) {
+        setError("No account with this email yet. Please sign up first.");
+      } else if (error.status === 429 || /rate|too many/i.test(error.message)) {
+        setError("Too many emails sent right now. Please try again later.");
+      } else if (/redirect|not allowed|invalid/i.test(error.message)) {
+        setError("This website URL is not allowed in Supabase yet. Add this GitHub Pages URL to Supabase Auth redirect URLs.");
+      } else {
+        setError("We couldn't send the email. Please try again.");
+      }
+      return;
+    }
     setStep("sent"); setWait(60);
   }
 
