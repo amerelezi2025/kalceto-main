@@ -1,0 +1,1 @@
+import{o as e}from"./useSelector-B_P3tCcN.js";import{n as t}from"./Match-DT1u44p-.js";var n=e(),r=()=>(0,n.jsx)(t,{});export{r as component};
